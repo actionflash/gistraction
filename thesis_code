@@ -1,0 +1,1848 @@
+##PROFIT PRICE PREDICTION
+# SECTIONS
+# 1. DATA READ AND SPLIT
+# 2. CORRELATIONS
+# 3. DATA CLEANSE
+# 4. TRANSFORMATIONS
+# 5. LINEAR REGRESSION
+# 6. LASSO REGRESSION
+# 7. GRADED BOOST TREE REGRESSION
+# 8. AVERAGE PRICES
+# 9. MAPS
+
+#Install the packages required
+
+#install.packages(c("yaml","knitr","ggplot2","plyr","dplyr","corrplot","caret","gridExtra","scales","Rmisc","ggrepel","randomForest","psych","xgboost","pbkrtest","Hmisc", "psych","car","rgl", "psych", "e1071", "caret", "Hmisc", "rgl","viridis","Rtools", "corrgram","pastecs","ggpubr","tidyverse", "energy","Rgooglemaps", "png", "units", "spatstat", "rjson", "maptools", "sp", "rgdal", "raster", "calibrate","xtable", "reshape", dependencies = all)
+
+#Load the packages required
+require(pastecs)
+require(ggpubr)
+require(tidyverse)
+require(Hmisc)
+require(corrplot)
+library(psych)
+library(energy)
+library(car)
+library(corrgram)
+library(testthat)
+library(ggplot2)
+library(cowplot) #gives ggplot nice looking defaults
+library(outliers)
+library(scales)
+library(rgl)
+library(e1071)
+library(outliers)
+library(viridis)
+library(arm)
+library(caret)
+library(ggpubr)
+library(pbkrtest)
+library(yaml)
+library(knitr)
+library(plyr)
+library(dplyr)
+library(corrplot)
+library(caret)
+library(gridExtra)
+library(reshape2)
+library(scales)
+library(Rmisc)
+library(ggrepel)
+library(randomForest)
+library(psych)
+library(xgboost)
+library(RColorBrewer)
+library(tidyr)
+library(dplyr)        
+library(readr)
+library(sf)
+library(maptools)
+library(googleway)
+library(ggmap)
+library(ggthemes)
+library(ggrepel)
+library(spatstat)
+library(units)
+library(RgoogleMaps)
+library(png)
+library(jpeg)
+library(rjson)
+library(tidyr)
+library(tibble)
+library(maptools)
+library(sp)
+library(rgdal)
+library(raster)
+library(calibrate)
+library(xtable)
+library(reshape)
+
+##### Set up the environment
+# Define your working directory - use forward / slash
+setwd("D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES")
+
+##### SECTION 1. DATA READ AND SPLIT
+
+##### Read in the Grand Table csv and explore the data
+grand_table <- read.csv("D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE_TAX.csv", sep = ",", na.strings = "?")
+head(grand_table)
+dim(grand_table) #12947 rows, 55 columns
+
+##### Replace all zeros in DV's with NA
+
+grand_table$AV_PR_M[grand_table$AV_PR_M == 0] <- NA
+grand_table$AV_PR_T[grand_table$AV_PR_T == 0] <- NA
+
+##### Subset the data by the property purpose type
+
+PROFIT <- subset(grand_table, TYPE_N=='1')
+residential <- subset (grand_table, TYPE_N=='2')
+head(PROFIT)
+head(residential)
+nrow(PROFIT) # 10254 rows
+nrow(residential) # 2693 rows
+
+##### Continue only with residential
+summary(residential)
+
+nrow(residential[is.na(residential)])
+nrow(residential[is.na(residential$AV_PR_M) |is.na(residential$TAX_SQM),])
+nrow(residential[is.na(residential$AV_PR_M),])
+nrow(residential[is.na(residential$TAX_SQM),])
+
+residential[is.na(residential$AV_PR_M) | is.na(residential$AV_PR_M),]
+
+##### Remove CAD, NUM_BUI, TYPE_N, TAX_SQM, TAX_1, TOTAL, AV_PR_T columns
+
+residential$CAD <- NULL
+residential$TYPE_N <- NULL
+residential$TAX_SQM <- NULL
+residential$TAX_1 <- NULL
+residential$TOTAL <- NULL
+residential$AV_PR_T <- NULL
+residential$N_BUI <- NULL #can use as categorical
+dim(residential)# Down to 49 columns
+
+
+##### CONTINUE ONLY WITH: : residential purpose, sales only
+
+residential_sales <- residential[!(is.na(residential$AV_PR_M)),]
+residential_sales
+summary(residential_sales) #Check there are no N/A's listed ie. missing values
+dim(residential_sales) # Left with 913 rows and 49 columns===
+
+# Let us look at the variables to consider their relationship
+dev.off()
+boxplot(residential_sales, main = "boxplot.matrix(...., main = ...)",
+        notch = TRUE, col = 1:4)
+
+#this is not good as the scales are so different
+
+##### Print out summaries of each column
+summary(residential_sales [2:49], digits = 2)
+
+summary_all_vars <- xtable(summary(residential_sales [2:49]))
+sink("D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/summary_all_vars_1.txt")
+print(summary(residential_sales [2:25]))
+sink()
+
+sink("D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/summary_all_vars_2.txt")
+print(summary(residential_sales [26:49]))
+sink()
+
+##### Let's normalise to the same scale to compare their distribution shapes in a mass boxplot
+
+rescaled.residential_sales <- data.frame(lapply(residential_sales, function(x) scale(x, center = FALSE, scale = max(x, na.rm = TRUE)/100)))  ###need to do without y value????
+head(rescaled.residential_sales)
+summary(rescaled.residential_sales)
+
+png(height=800, width=1000, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/PS_BOXPLOT_VARS_SCALED.png")
+boxplot(rescaled.residential_sales[2:49], main = "Box plots of all the variables (normalised and scaled)",
+        notch = FALSE, col=brewer.pal(n = 3, name = "RdBu"), par(las = 2), ylab = "Scaled value (0-100)")
+dev.off()
+
+# The variables have differing scales and many are not normally distributed.
+
+#### Let's create a correlation matrix spreadsheet with method 'spearman' with p and r values of the variables' correlations. PRINTED
+
+# flat_cor_mat <- function(cor_r, cor_p){
+#   cor_r <- rownames_to_column(as.data.frame(cor_r), var = "row")
+#   cor_r <- gather(cor_r, column, cor, -1)
+#   cor_p <- rownames_to_column(as.data.frame(cor_p), var = "row")
+#   cor_p <- gather(cor_p, column, p, -1)
+#   cor_p_matrix <- left_join(cor_r, cor_p, by = c("row", "column"))
+#   cor_p_matrix
+# }
+# cor_3 <- rcorr(as.matrix(all), type=c("spearman"),2)
+# 
+# my_cor_matrix <- flat_cor_mat(cor_3$r, cor_3$P)
+# head(my_cor_matrix)
+# write.csv(my_cor_matrix, file ="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/PS_MATRIX_p&r_spearman.csv")
+
+##### Let's do the same but with Pearson, to compare with the variables once they have been normalised.  PRINTED
+# 
+# flat_cor_mat <- function(cor_r, cor_p){
+# cor_r <- rownames_to_column(as.data.frame(cor_r), var = "row")
+# cor_r <- gather(cor_r, column, cor, -1)
+# cor_p <- rownames_to_column(as.data.frame(cor_p), var = "row")
+# cor_p <- gather(cor_p, column, p, -1)
+# cor_p_matrix <- left_join(cor_r, cor_p, by = c("row", "column"))
+# cor_p_matrix
+# }
+# cor_3 <- rcorr(as.matrix(all), type=c("pearson"),2)
+# 
+# my_cor_matrix <- flat_cor_mat(cor_3$r, cor_3$P)
+# head(my_cor_matrix)
+# write.csv(my_cor_matrix, file ="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/PS_MATRIX_p&r_pearson.csv")
+
+##########################START OF TABLE MATRICES#####################################
+
+#####################################################
+#SPEARMAN TABLE - ALL ROWS
+#####################################################
+
+corstars <-function(x, method=c("spearman"), removeTriangle=c("upper"),
+                    result=c("none", "html", "latex")){
+  #Compute correlation matrix
+  require(Hmisc)
+  x <- as.matrix(x)
+  correlation_matrix<-rcorr(x, type=method[1])
+  R <- correlation_matrix$r # Matrix of correlation coeficients
+  p <- correlation_matrix$P # Matrix of p-value 
+  
+  ## Define notions for significance levels; spacing is important.
+  mystars <- ifelse(p < .0001, "****", ifelse(p < .001, "*** ", ifelse(p < .01, "**  ", ifelse(p < .05, "*   ", "    "))))
+  
+  ## trunctuate the correlation matrix to two decimal
+  R <- format(round(cbind(rep(-1.11, ncol(x)), R), 2))[,-1]
+  
+  ## build a new matrix that includes the correlations with their apropriate stars
+  Rnew <- matrix(paste(R, mystars, sep=""), ncol=ncol(x))
+  diag(Rnew) <- paste(diag(R), " ", sep="")
+  rownames(Rnew) <- colnames(x)
+  colnames(Rnew) <- paste(colnames(x), "", sep="")
+  
+  ## remove upper triangle of correlation matrix
+  if(removeTriangle[1]=="upper"){
+    Rnew <- as.matrix(Rnew)
+    Rnew[upper.tri(Rnew, diag = TRUE)] <- ""
+    Rnew <- as.data.frame(Rnew)
+  }
+  
+  ## remove lower triangle of correlation matrix
+  else if(removeTriangle[1]=="lower"){
+    Rnew <- as.matrix(Rnew)
+    Rnew[lower.tri(Rnew, diag = TRUE)] <- ""
+    Rnew <- as.data.frame(Rnew)
+  }
+  
+  ## remove last column and return the correlation matrix
+  Rnew <- cbind(Rnew[1:length(Rnew)-1])
+  if (result[1]=="none") return(Rnew)
+  else{
+    if(result[1]=="html") print(xtable(Rnew), type="html")
+    else print(xtable(Rnew), type="latex") 
+  }
+} 
+
+
+write.csv(corstars(residential[,2:49]), file ="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/MATRICES/RESIDENTIAL_SPEARMAN_MATRIX_ALL_LAND_PARCELS.csv")
+dev.off()
+
+#############################################
+#PEARSON TABLE ALL ROWS
+#############################################
+
+
+corstars <-function(x, method=c("pearson"), removeTriangle=c("upper"),
+                    result=c("none", "html", "latex")){
+  #Compute correlation matrix
+  require(Hmisc)
+  x <- as.matrix(x)
+  correlation_matrix<-rcorr(x, type=method[1])
+  R <- correlation_matrix$r # Matrix of correlation coeficients
+  p <- correlation_matrix$P # Matrix of p-value 
+  
+  ## Define notions for significance levels; spacing is important.
+  mystars <- ifelse(p < .0001, "****", ifelse(p < .001, "*** ", ifelse(p < .01, "**  ", ifelse(p < .05, "*   ", "    "))))
+  
+  ## trunctuate the correlation matrix to two decimal
+  R <- format(round(cbind(rep(-1.11, ncol(x)), R), 2))[,-1]
+  
+  ## build a new matrix that includes the correlations with their apropriate stars
+  Rnew <- matrix(paste(R, mystars, sep=""), ncol=ncol(x))
+  diag(Rnew) <- paste(diag(R), " ", sep="")
+  rownames(Rnew) <- colnames(x)
+  colnames(Rnew) <- paste(colnames(x), "", sep="")
+  
+  ## remove upper triangle of correlation matrix
+  if(removeTriangle[1]=="upper"){
+    Rnew <- as.matrix(Rnew)
+    Rnew[upper.tri(Rnew, diag = TRUE)] <- ""
+    Rnew <- as.data.frame(Rnew)
+  }
+  
+  ## remove lower triangle of correlation matrix
+  else if(removeTriangle[1]=="lower"){
+    Rnew <- as.matrix(Rnew)
+    Rnew[lower.tri(Rnew, diag = TRUE)] <- ""
+    Rnew <- as.data.frame(Rnew)
+  }
+  
+  ## remove last column and return the correlation matrix
+  Rnew <- cbind(Rnew[1:length(Rnew)-1])
+  if (result[1]=="none") return(Rnew)
+  else{
+    if(result[1]=="html") print(xtable(Rnew), type="html")
+    else print(xtable(Rnew), type="latex") 
+  }
+} 
+
+
+write.csv(corstars(residential[,2:49]), file ="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/MATRICES/RESIDENTIAL_PEARSON_MATRIX_ALL_LAND_PARCELS.csv")
+dev.off()
+
+######################################################
+#####################################################
+#SPEARMAN TABLE SALES ONLY!
+#####################################################
+
+corstars <-function(x, method=c("spearman"), removeTriangle=c("upper"),
+                    result=c("none", "html", "latex")){
+  #Compute correlation matrix
+  require(Hmisc)
+  x <- as.matrix(x)
+  correlation_matrix<-rcorr(x, type=method[1])
+  R <- correlation_matrix$r # Matrix of correlation coeficients
+  p <- correlation_matrix$P # Matrix of p-value 
+  
+  ## Define notions for significance levels; spacing is important.
+  mystars <- ifelse(p < .0001, "****", ifelse(p < .001, "*** ", ifelse(p < .01, "**  ", ifelse(p < .05, "*   ", "    "))))
+  
+  ## trunctuate the correlation matrix to two decimal
+  R <- format(round(cbind(rep(-1.11, ncol(x)), R), 2))[,-1]
+  
+  ## build a new matrix that includes the correlations with their apropriate stars
+  Rnew <- matrix(paste(R, mystars, sep=""), ncol=ncol(x))
+  diag(Rnew) <- paste(diag(R), " ", sep="")
+  rownames(Rnew) <- colnames(x)
+  colnames(Rnew) <- paste(colnames(x), "", sep="")
+  
+  ## remove upper triangle of correlation matrix
+  if(removeTriangle[1]=="upper"){
+    Rnew <- as.matrix(Rnew)
+    Rnew[upper.tri(Rnew, diag = TRUE)] <- ""
+    Rnew <- as.data.frame(Rnew)
+  }
+  
+  ## remove lower triangle of correlation matrix
+  else if(removeTriangle[1]=="lower"){
+    Rnew <- as.matrix(Rnew)
+    Rnew[lower.tri(Rnew, diag = TRUE)] <- ""
+    Rnew <- as.data.frame(Rnew)
+  }
+  
+  ## remove last column and return the correlation matrix
+  Rnew <- cbind(Rnew[1:length(Rnew)-1])
+  if (result[1]=="none") return(Rnew)
+  else{
+    if(result[1]=="html") print(xtable(Rnew), type="html")
+    else print(xtable(Rnew), type="latex") 
+  }
+} 
+
+
+write.csv(corstars(residential_sales[,2:49]), file ="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/MATRICES/RESIDENTIAL_SPEARMAN_MATRIX_SOLD_LAND_PARCELS.csv")
+dev.off()
+
+
+
+
+#############################################
+#PEARSON TABLE SALES ONLY!
+###############################################
+
+corstars <-function(x, method=c("pearson"), removeTriangle=c("upper"),
+                    result=c("none", "html", "latex")){
+  #Compute correlation matrix
+  require(Hmisc)
+  x <- as.matrix(x)
+  correlation_matrix<-rcorr(x, type=method[1])
+  R <- correlation_matrix$r # Matrix of correlation coeficients
+  p <- correlation_matrix$P # Matrix of p-value 
+  
+  ## Define notions for significance levels; spacing is important.
+  mystars <- ifelse(p < .0001, "****", ifelse(p < .001, "*** ", ifelse(p < .01, "**  ", ifelse(p < .05, "*   ", "    "))))
+  
+  ## trunctuate the correlation matrix to two decimal
+  R <- format(round(cbind(rep(-1.11, ncol(x)), R), 2))[,-1]
+  
+  ## build a new matrix that includes the correlations with their apropriate stars
+  Rnew <- matrix(paste(R, mystars, sep=""), ncol=ncol(x))
+  diag(Rnew) <- paste(diag(R), " ", sep="")
+  rownames(Rnew) <- colnames(x)
+  colnames(Rnew) <- paste(colnames(x), "", sep="")
+  
+  ## remove upper triangle of correlation matrix
+  if(removeTriangle[1]=="upper"){
+    Rnew <- as.matrix(Rnew)
+    Rnew[upper.tri(Rnew, diag = TRUE)] <- ""
+    Rnew <- as.data.frame(Rnew)
+  }
+  
+  ## remove lower triangle of correlation matrix
+  else if(removeTriangle[1]=="lower"){
+    Rnew <- as.matrix(Rnew)
+    Rnew[lower.tri(Rnew, diag = TRUE)] <- ""
+    Rnew <- as.data.frame(Rnew)
+  }
+  
+  ## remove last column and return the correlation matrix
+  Rnew <- cbind(Rnew[1:length(Rnew)-1])
+  if (result[1]=="none") return(Rnew)
+  else{
+    if(result[1]=="html") print(xtable(Rnew), type="html")
+    else print(xtable(Rnew), type="latex") 
+  }
+} 
+
+
+write.csv(corstars(residential_sales[,2:49]), file ="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/MATRICES/RESIDENTIAL_PEARSON_MATRIX_SOLD_LAND_PARCELS.csv")
+dev.off()
+######################################################
+
+#################END OF TABLES"!!!!!!!!!!################
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+######################################################
+
+#### Let's create a correlation matrix spreadsheet with method 'spearman' with p and r values of the variables' correlations. PRINTED
+
+residential_numbers <- residential[2:49]
+head(residential_sales_numbers)
+
+flat_cor_mat <- function(cor_r, cor_p){
+  cor_r <- rownames_to_column(as.data.frame(cor_r), var = "row")
+  cor_r <- gather(cor_r, column, cor, -1)
+  cor_p <- rownames_to_column(as.data.frame(cor_p), var = "row")
+  cor_p <- gather(cor_p, column, p, -1)
+  cor_p_matrix <- left_join(cor_r, cor_p, by = c("row", "column"))
+  cor_p_matrix
+}
+cor_4 <- rcorr(as.matrix(residential_numbers), type=c("spearman"))
+
+my_cor_matrix <- flat_cor_mat(cor_4$r, cor_4$P)
+head(my_cor_matrix)
+write.csv(my_cor_matrix, file ="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/FLAT_COR_MATRIX_SPEARMAN_RESIDENTIAL_SALES_ONLY.csv")
+
+png(height=2000, width=2000, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/corrplot_spearman_RESIDENTIAL_ALL.png")
+corrplot::corrplot(as.matrix(cor_4$r), method = 'color', addCoef.col = "black",  p.mat = cor_4$P, sig.level = 0.05, main  = "Spearman Correlations: All (Unsold and Sold) Residential Land Parcels Hiiu County. 
+Statistically non-significant correlations (P>0.050 are crossed.", line = -6,cex.main = 2, tl.col = "black", pch.col = "black")
+dev.off()
+
+
+
+
+######################################################
+
+#### Let's create a correlation matrix spreadsheet with method 'pearson' with p and r values of the variables' correlations. PRINTED
+
+
+residential_all_numbers <- residential[2:49]
+head(residential_all_numbers)
+
+flat_cor_mat <- function(cor_r, cor_p){
+  cor_r <- rownames_to_column(as.data.frame(cor_r), var = "row")
+  cor_r <- gather(cor_r, column, cor, -1)
+  cor_p <- rownames_to_column(as.data.frame(cor_p), var = "row")
+  cor_p <- gather(cor_p, column, p, -1)
+  cor_p_matrix <- left_join(cor_r, cor_p, by = c("row", "column"))
+  cor_p_matrix
+}
+cor_5 <- rcorr(as.matrix(residential_all_numbers), type=c("pearson"))
+
+my_cor_matrix <- flat_cor_mat(cor_5$r, cor_5$P)
+head(my_cor_matrix)
+write.csv(my_cor_matrix, file ="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/FLAT_COR_MATRIX_PEARSON_RESIDENTIAL_SALES_ONLY.csv")
+
+png(height=2000, width=2000, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/corrplot_PEARSON_RESIDENTIAL_all.png")
+corrplot::corrplot(as.matrix(cor_5$r), method = 'color', addCoef.col = "black",  p.mat = cor_5$P, sig.level = 0.05, main  = "Pearson Correlations: All (Unsold and Sold) Residential Land Parcels Hiiu County.
+Statistically non-significant correlations (P>0.05) are crossed.", line = -6,cex.main = 2, tl.col = "black")
+dev.off()
+
+
+######################################################
+
+######################################################
+
+#### Let's create a correlation matrix spreadsheet with method 'spearman' with p and r values of the variables' correlations. PRINTED
+
+residential_sales_numbers <- residential_sales[2:49]
+head(residential_sales_numbers)
+
+flat_cor_mat <- function(cor_r, cor_p){
+  cor_r <- rownames_to_column(as.data.frame(cor_r), var = "row")
+  cor_r <- gather(cor_r, column, cor, -1)
+  cor_p <- rownames_to_column(as.data.frame(cor_p), var = "row")
+  cor_p <- gather(cor_p, column, p, -1)
+  cor_p_matrix <- left_join(cor_r, cor_p, by = c("row", "column"))
+  cor_p_matrix
+}
+cor_6 <- rcorr(as.matrix(residential_sales_numbers), type=c("spearman"))
+
+my_cor_matrix <- flat_cor_mat(cor_6$r, cor_6$P)
+head(my_cor_matrix)
+write.csv(my_cor_matrix, file ="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/FLAT_COR_MATRIX_SPEARMAN_RESIDENTIAL_SALES_ONLY.csv")
+
+png(height=2000, width=2000, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/PS_corrplot_spearman_RESIDENTIAL_SALES_ONLY.png")
+corrplot::corrplot(as.matrix(cor_6$r), method = 'color', addCoef.col = "black",  p.mat = cor_6$P, sig.level = 0.05, main  = "Spearman Correlations: Sold Residential Land Parcels Hiiu County. 
+Statistically non-significant correlations (P>0.05) are crossed.", line = -6,cex.main = 2, tl.col = "black")
+dev.off()
+
+
+
+
+######################################################
+
+#### Let's create a correlation matrix spreadsheet with method 'pearson' with p and r values of the variables' correlations. PRINTED
+
+head(numericVars)
+residential_sales_numbers <- residential_sales[2:49]
+head(residential_sales_numbers)
+
+flat_cor_mat <- function(cor_r, cor_p){
+  cor_r <- rownames_to_column(as.data.frame(cor_r), var = "row")
+  cor_r <- gather(cor_r, column, cor, -1)
+  cor_p <- rownames_to_column(as.data.frame(cor_p), var = "row")
+  cor_p <- gather(cor_p, column, p, -1)
+  cor_p_matrix <- left_join(cor_r, cor_p, by = c("row", "column"))
+  cor_p_matrix
+}
+cor_7 <- rcorr(as.matrix(residential_sales_numbers), type=c("pearson"))
+
+my_cor_matrix <- flat_cor_mat(cor_7$r, cor_7$P)
+head(my_cor_matrix)
+write.csv(my_cor_matrix, file ="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/FLAT_COR_MATRIX_PEARSON_RESIDENTIAL_SALES_ONLY.csv")
+
+png(height=2000, width=2000, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/PS_corrplot_PEARSON_RESIDENTIAL_SALES_ONLY.png")
+corrplot::corrplot(as.matrix(cor_7$r), method = 'color', addCoef.col = "black",  p.mat = cor_7$P, sig.level = 0.05, main  = "Pearson Correlations: Sold Residential Land Parcels Hiiu County.
+Statistically non-significant correlations (P>0.05) are crossed.", line = -6,cex.main = 2, tl.col = "black")
+dev.off()
+######################################################
+#####################################################
+
+
+##### Let's divide the data into groups of independent variable type and plot histograms. Use the unscaled data
+
+# head(residential_sales)
+# str(residential_sales)
+# dim(residential_sales)
+# 
+#1.First set of distance variables
+residential.distances <- (residential_sales [4:33])
+# residential.distances.pr <- residential_sales[,c(4:33, 49)]
+residential.distances.pr <- (residential_sales[34:43])
+residential.soils <- (residential_sales[44:48])
+
+meltData <- melt(residential.distances)
+meltData2 <- melt(residential.distances.pr)
+meltData3 <- melt(residential.soils)
+
+p <- ggplot(meltData, aes(factor(variable), value)) 
+png(height=800, width=800, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/PS_residential.distances_a_boxplotS.png")
+p + geom_boxplot() + facet_wrap(~variable, scale="free") +ylab("Range of values") +
+  ggtitle("Ranges of Distances from Residential Land Parcels Sold
+          in Hiiu County (01.01.2013 - 31.12.2017)
+          to Displayed Environmental Factors")
+dev.off()
+
+q <- ggplot(meltData2, aes(factor(variable), value)) 
+png(height=800, width=800, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/PS_residential.percentages_boxplotS.png")
+q + geom_boxplot() + facet_wrap(~variable, scale="free") +ylab("Range of values") +
+  ggtitle("Ranges of Internal Land Type Percentage Values
+  for Residential Land Parcels Sold in Hiiu County (01.01.2013 - 31.12.2017)
+          to Displayed Environmental Factors")
+dev.off()
+
+
+
+r <- ggplot(meltData3, aes(factor(variable), value)) 
+png(height=800, width=800, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/PS_residential.soils_boxplotS.png")
+r + geom_boxplot() + facet_wrap(~variable, scale="free") +ylab("Range of values") +
+  ggtitle("Ranges of Average Internal Soil Percentage Values
+          for  Residential Land Parcels Sold in Hiiu County (01.01.2013 - 31.12.2017)
+          to Displayed Environmental Factors")
+dev.off()
+
+
+
+# 
+# 
+# ggplot(gather(residential.distances), aes(x=value, y=len))+geom_boxplot(fill="purple",color="black",bins = 10) + xlab("Distances (m)") +
+#   ylab("Number of cadastres") +
+#   ggtitle("Residential Land Distance Environmental Variables") + facet_wrap(~key, scales = 'free_x') + theme(text = element_text(size=20), axis.text.x = element_text(angle=90, size = 10, hjust=1), axis.text.y = element_text(size = 10, hjust=1))
+# 
+# 
+# 
+# #2. Percentage variables
+# residential.percentages <- (residential_sales [34:43])
+# head(residential.percentages)
+# 
+# png(height=1000, width=800, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/PS_residential.percentages_boxplotS.png")
+# ggplot(gather(residential.percentages), aes(value))+geom_boxplot(fill="darkgreen",color="black",bins = 10) + xlab("Average percentage") +  ylab("Number of cadastres") +
+#   ggtitle("Residential Land Internal Percentage Environmental Variables") + facet_wrap(~key, scales = 'free_x') + theme(text = element_text(size=20), axis.text.x = element_text(angle=90, size = 10, hjust=1), axis.text.y = element_text(size = 10, hjust=1))
+# dev.off()
+# 
+# #3. Soil averages variables
+# residential.averages <- (residential_sales [44:48])
+# head(residential.averages)
+# 
+# png(height=1000, width=800, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/PS_residential.averages_boxplotS.png")
+# ggplot(gather(residential.averages), aes(value))+geom_boxplot(fill="brown",color="black",bins = 10) + xlab("Average percentage") +
+#   ylab("Count") +
+#   ggtitle("Residential Average Internal Soil Percentage Environmental Variables") + facet_wrap(~key, scales = 'free_x') + theme(text = element_text(size=20), axis.text.x = element_text(angle=90, size = 10, hjust=1), axis.text.y = element_text(size = 10, hjust=1))
+# dev.off()
+
+##### Now make the training sample
+
+train <- residential_sales
+summary(train)
+dim(train) #131  49
+#Left with 131 rows to make the traing model 
+
+##### Continue only with residential purpose, NO sales only
+##### Now make the testing sample
+
+nrow(residential)
+head(residential)
+residential_no_sales <- residential[(is.na(residential$AV_PR_M)),]
+residential_no_sales
+summary(residential_no_sales) #CHECK THERE ARE NO N/A's listed ie. missing values
+dim(residential_no_sales) 
+
+test <- residential_no_sales
+summary(test)
+dim(test)
+#Left with 2562 rows to make the prediction model (roughly 10x the size of the training model. Not ideal, perhaps)  
+
+dim(train)
+str(train[,c(1:10, 49)]) #display first 10 variables and the response variable
+
+#Getting rid of the IDs but keeping the test IDs in a vector. These are needed to compose the submission file
+test_labels <- test$FID_1 #THIS IS ONLY THE TEST COLUMN
+str(test_labels)
+test$FID_1 <- NULL
+train$FID_1 <- NULL
+
+head(test)
+head(train)
+test$AV_PR_M <- NA
+head(test)
+
+all <- rbind(train, test)
+summary(all)
+dim(all)
+##2693   48
+#Without the Id's, the dataframe consists of 48 columns including the dependent variable AV_PR_M
+
+##### Exploring some of the most important variables
+##### The response variable; AV_PR_M
+
+summary(all$AV_PR_M)
+#summary(all$AV_PR_T)
+#PRINT
+
+##### It is clear that the dependent variable is highly skewed. The range is from 0.005 to 6.967, but the median is 0.206. 
+
+################################
+
+##### 2.CORRELATIONS
+
+################################
+
+##### Using the correlation matrix, let's explore the most correlated independent variables with AV_PR_M.
+
+numericVars <- which(sapply(all, is.numeric)) #index vector numeric variables
+numericVarNames <- names(numericVars) #saving names vector for use later on
+cat('There are', length(numericVars), 'numeric variables')      
+
+(numericVars)
+(numericVarNames)
+#There are 48 numeric variables (including DV)
+
+all_numVar <- all[, numericVars]
+##### Create a new variable of the correlations between the variables, using Spearman's method. 
+cor_numVar <- cor(all_numVar, use="pairwise.complete.obs", method = "spearman") #correlations of all numeric variables
+
+##### Sort the correlations with the dependent variable by decending order, from strong to weak
+cor_sorted <- as.matrix(sort(cor_numVar[,'AV_PR_M'], decreasing = TRUE ))
+##### Select only the significantly correlated independent variables with the dependent variable (> +/- 0.1)
+CorHigh <- names(which(apply(cor_sorted, 1, function(x) abs(x)>0.1)))
+cor_numVar <- cor_numVar[CorHigh, CorHigh]
+dev.off()
+
+png(height=1000, width=1000, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/PS_corrplot_untransformed.png")
+corrplot.mixed(cor_numVar, upper = "ellipse", tl.col = "black", tl.pos = "lt", tl.cex =1, lower.col = "black", number.cex = 0.6)
+dev.off()
+
+
+
+#It is clear that there are some medium strength correlations with AV_PR_M. There are 32 variables that have some significant correlation (>= +/- 0.1 with the dependent variable). Half are positive and half negative
+#There are clearly some variables that are intercorrelated strongly with each other
+
+##### Repeat for variables over 0.2
+
+
+numericVars <- which(sapply(all, is.numeric)) #index vector numeric variables
+numericVarNames <- names(numericVars) #saving names vector for use later on
+cat('There are', length(numericVars), 'numeric variables')      
+
+(numericVars)
+(numericVarNames)
+#There are 48 numeric variables (including DV)
+
+all_numVar <- all[, numericVars]
+##### Create a new variable of the correlations between the variables, using Spearman's method. 
+cor_numVar <- cor(all_numVar, use="pairwise.complete.obs", method = "spearman") #correlations of all numeric variables
+
+##### Sort the correlations with the dependent variable by decending order, from strong to weak
+cor_sorted <- as.matrix(sort(cor_numVar[,'AV_PR_M'], decreasing = TRUE ))
+##### Select only the significantly correlated independent variables with the dependent variable (> +/- 0.1)
+CorHigh <- names(which(apply(cor_sorted, 1, function(x) abs(x)>0.2)))
+cor_numVar <- cor_numVar[CorHigh, CorHigh]
+dev.off()
+
+png(height=800, width=800, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/PS_corrplot_untransformed_0.2.png")
+corrplot.mixed(cor_numVar, upper = "ellipse", tl.col = "black", tl.pos = "lt", tl.cex =1, lower.col = "black", number.cex = 0.6)
+dev.off()
+
+##### The most highly correlated variable: AREA
+summary(all$AREA)
+#The variable with the highest correlation. with AV_PR_M is AREA The correlation (with Spearman) is -0.55.
+#Potential reason for correlaiton: 
+
+##### The second most correlated variable: D_DRA 
+summary(all$D_DRA)
+#The variable with the second highest correlation. with AV_PR_M is AREA The correlation (with Spearman) is 0.44.
+#Potential reason for correlaiton: 
+
+
+##### The third most correlated variable: D_SAN 
+summary(all$D_SAN) 
+#The variable with the third highest correlation. with AV_PR_M is D_SAN The correlation (with Spearman) is -0.41.
+#Potential reason for correlaiton: 
+
+##### The fourth most correlated variable: D_COA 
+summary(all$D_COA) # #The variable with the third highest correlation. with AV_PR_M is D_SAN The correlation (with Spearman) is -0.41.
+#Potential reason for correlaiton: Could be a lack of data. Could be there arent many plots close to coast. could be that it doesnt matter on Hiiumaa. Could be that the forest is preferred. Could be linked to another variable
+
+
+##########################################################################################################################################################
+
+numericVars <- which(sapply(residential_sales, is.numeric)) #index vector numeric variables
+numericVarNames <- names(numericVars) #saving names vector for use later on
+cat('There are', length(numericVars), 'numeric variables')      
+
+(numericVars)
+(numericVarNames)
+#There are 48 numeric variables (including DV)
+
+all_numVar <- residential_sales[, numericVars]
+##### Create a new variable of the correlations between the variables, using Spearman's method. 
+cor_numVar <- cor(all_numVar, use="pairwise.complete.obs", method = "spearman") #correlations of all numeric variables
+
+##### Sort the correlations with the dependent variable by decending order, from strong to weak
+cor_sorted <- as.matrix(sort(cor_numVar[,'AV_PR_M'], decreasing = TRUE ))
+##### Select only the significantly correlated independent variables with the dependent variable (> +/- 0.1)
+CorHigh <- names(which(apply(cor_sorted, 1, function(x) abs(x)>0.2)))
+cor_numVar <- cor_numVar[CorHigh, CorHigh]
+dev.off()
+
+png(height=1000, width=1000, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/RESIDENTIAL_SALES_ONLY_SPEARMAN.png")
+corrplot.mixed(cor_numVar, upper = "ellipse", tl.col = "black", tl.pos = "lt", tl.cex =1, lower.col = "black", number.cex = 0.6)
+dev.off()
+
+
+
+
+gg1<-ggplot(data=all[!is.na(all$AV_PR_M),], aes(x=AREA, y=AV_PR_M))+
+  geom_point(col='blue') + geom_smooth(method = "lm", se=FALSE, color="black", aes(group=1)) +
+  scale_y_continuous(labels = comma) + xlab ("Size of Land Parcel (m2)") +ylab ("Price (Euro/sqm)")  +
+  ggtitle("   Size of Land Parcel
+    vs Average Sold Price (Euros/m2)")
+
+gg2<-ggplot(data=all[!is.na(all$AV_PR_M),], aes(x=D_DRA, y=AV_PR_M))+
+  geom_point(col='blue') + geom_smooth(method = "lm", se=FALSE, color="black", aes(group=1)) +
+  scale_y_continuous(labels = comma)+ xlab ("Distance to Drainage Feature (m)") +ylab ("Price (Euro/sqm)")  +
+  ggtitle("  Distance to Drainage Feature
+    vs Average Sold Price (Euros/m2)")
+
+gg3 <-ggplot(data=all[!is.na(all$AV_PR_M),], aes(x=D_SAN, y=AV_PR_M))+
+  geom_point(col='blue') + geom_smooth(method = "lm", se=FALSE, color="black", aes(group=1)) +
+  scale_y_continuous(labels = comma) +xlab ("Distance to Sand Beach (m)") +ylab ("Price (Euro/sqm)")  +
+  ggtitle(" Distance to Sand Beach
+    vs Average Sold Price (Euros/m2)")
+
+gg3 <-ggplot(data=all[!is.na(all$AV_PR_M),], aes(x=D_SAN, y=AV_PR_M))+
+  geom_point(col='blue') + geom_smooth(method = "lm", se=FALSE, color="black", aes(group=1)) +
+  scale_y_continuous(labels = comma)  +xlab ("Distance to Sand Beach (m)") +ylab ("Price (Euro/sqm)")  +
+  ggtitle(" Distance to Sand Beach
+    vs Average Sold Price (Euros/m2)")
+
+gg4<-ggplot(data=all[!is.na(all$AV_PR_M),], aes(x=D_COA, y=AV_PR_M))+
+  geom_point(col='blue') + geom_smooth(method = "lm", se=FALSE, color="black", aes(group=1)) +
+  scale_y_continuous(labels = comma)    +xlab ("Distance to Coast (m)") +ylab ("Price (Euro/sqm)")  +
+  ggtitle("  Distance to Coast
+    vs Average Sold Price (Euros/m2)")
+
+dev.off()
+
+layout <- matrix(c(1,2,3,4),2,2,byrow=TRUE)
+
+png(height=600, width=800, pointsize=20, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/PS_HIST_4_MOST_CORRELATED_IV.png")
+multiplot(gg1, gg2, gg3, gg4, layout=layout)
+dev.off()
+
+
+#############################
+
+##### SECTION 3. DATA CLEANSE
+
+#############################
+
+#### Checking for missing data and label encoding
+#### Checking completeness of the data
+#### First, see which variables contain missing values.
+
+NAcol <- which(colSums(is.na(all)) > 0)
+sort(colSums(sapply(all[NAcol], is.na)), decreasing = TRUE)
+cat('There are', length(NAcol), 'columns with missing values')
+#There is 1 column with missing values
+#As already thought, only the DV's have missing data. I don't need to imputate for missing data. 
+
+##### Checking for categorical variables
+
+numericVars <- which(sapply(all, is.numeric)) #index vector numeric variables
+factorVars <- which(sapply(all, is.factor)) #index vector factor variables
+cat('There are', length(numericVars), 'numeric variables, and', length(factorVars), 'categoric variables')
+
+#There are 48 numeric variables, and 0 categoric variables
+
+##### Finding variable importance with a quick Random Forest to give rough indication of the most important IV's
+
+dim(all)
+
+set.seed(2018)
+quick_RF <- randomForest(x=all[1:131,-(48)], y=all$AV_PR_M[1:131], ntree=100,importance=TRUE)
+imp_RF <- importance(quick_RF)
+imp_DF <- data.frame(Variables = row.names(imp_RF), MSE = imp_RF[,1])
+imp_DF <- imp_DF[order(imp_DF$MSE, decreasing = TRUE),]
+
+
+png(height=600, width=800, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/PS_QUICK_RANDOM_FOREST_TOP_20.png")
+ggplot(imp_DF[1:20,], aes(x=reorder(Variables, MSE), y=MSE, fill=MSE)) + geom_bar(stat = 'identity') + labs(x = 'Variables', y= '% increase MSE if variable is randomly permuted') + coord_flip() + theme(legend.position="none") + ggtitle("The 20 most important variables Mean Squared Error (MSE) according to Random Forest")
+dev.off()
+
+#Of the IV's, the most important variables according to Random Forest are S_CLA, S_SIL and D_LDF. However, the top 2 variables have the same score and there is likely multicollinearity. 
+
+##### It is notable that S_FER which was the only soil variable to show significant correlation (spearman) with the DV is missing from the random forest top 20. 
+#it is notable that the soil proportion variables all have significant correlations, in both the random forest and the above linear model, except for S_ROC and S_FER, of which S_ROC is absent in both.
+##### It was assumed that S_FER would have been a combination of the other soil variables and thus highly correlated with them, however:
+cor(all$S_FER, (all$S_CLA +all$S_SAN + all$S_ROC + all$S_SIL))
+# 0.1471995
+cor(all$S_CLA, all$S_SIL, method = "spearman")
+# 0.9818532
+# S_CLA will also be dropped, for having high multicollinearity, and a lower correletion with AV_PR_M
+cor(all$S_CLA, (all$S_SAN), method = "spearman")
+# -0.8162334 clear multicollinearity
+# Aleady decided that S_CLA will be dropped, for having high multicollinearity, and a lower correletion with AV_PR_M
+
+boxplot(log10(all$P_WAT+1))
+skew(sqrt(all$P_WAT))
+
+boxpl
+
+##### Prepare data for modelling
+##### Dropping highly correlated variables (from correlation spreadsheet) with correlations over 0.7. I am dropping the variable with the lowest correlation with the dependent variable.
+
+##### Dropping high correlated variables (from correlation matrix)
+#Looking at the full correlation matrix table and the random forest, remove highly intercorrelated independent variables and then the percentage variables hold preference over the distance variables
+
+#P_FIE dropped over D_ARA (lower R2 value) 
+#S_CLA dropped over S_SAN (lower R2)
+#S_SAN dropped over S_SIL (lower R2)
+#P_GRA dropped over D_GRA (they're exactly the same)
+#D_BUI dropped over D_LCB (lower R2 (both have non significant p-values))
+#D_AIR dropped over D_LDF 
+#P_BUI dropped over D_BUI
+#P_HOR dropped over P_ARA (they're exactly the same)
+#D_WET dropped over D_WLL (same R2)
+#P_PRI dropped over D_LCB
+
+
+drop_high_vars <- c('P_FIE',  'S_SAN','S_CLA', 'P_GRA', 'D_BUI',  'D_AIR', 'P_HOR', 'D_QUA', 'D_QKM', 'D_SPO', 'D_WLL')
+
+summary(drop_high_vars)
+all <- all[,!(names(all) %in% drop_high_vars)]
+summary(all)
+dim(all) #2693   38
+
+
+##### REMOVING OUTLIERS
+###not used. ready to go, based on outliers from 4 best correlated variables
+
+#all <- all[-c(10683, 8074),]
+
+##### Correlation matrix of the now reduced dataset to check for multicollinearity
+
+numericVars <- which(sapply(all, is.numeric)) #index vector numeric variables
+numericVarNames <- names(numericVars) #saving names vector for use later on
+cat('There are', length(numericVars), 'numeric variables')      
+
+(numericVars)
+(numericVarNames)
+#There are 38 numeric variables (including DV)
+
+all_numVar <- all[, numericVars]
+##### Create a new variable of the correlations between the variables, using Spearman's method. 
+cor_numVar <- cor(all_numVar, use="pairwise.complete.obs", method = "spearman") #correlations of all numeric variables
+
+##### Sort the correlations with the dependent variable by decending order, from strong to weak
+cor_sorted <- as.matrix(sort(cor_numVar[,'AV_PR_M'], decreasing = TRUE ))
+##### Select only the significantly correlated independent variables with the dependent variable (> +/- 0.1)
+CorHigh <- names(which(apply(cor_sorted, 1, function(x) abs(x)>0.1)))
+cor_numVar <- cor_numVar[CorHigh, CorHigh]
+
+png(height=1000, width=1000, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/PS_corrplot_untransformed_2.png")
+corrplot.mixed(cor_numVar, tl.col="black", tl.pos = "lt", tl.cex =1, lower.col = "black", number.cex = 1)
+dev.off()
+
+
+##### Pairs panel of the now reduced dataset to check for multicollinearity
+
+most_corr_positive <- c("AV_PR_M", "D_DRA", "D_ARA", "D_GRA", "D_WAT", "P_WOO", "D_LDF", "D_SCH", "D_SPR", "D_WLL", "D_WDV", "D_RIV", "D_SHO", "P_PRO", "S_ROC")
+head(most_corr_positive)
+high_positive_cor <- all[,(names(all) %in% most_corr_positive)]
+head(high_cor)
+
+# png(height=1500, width=1500, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/PS_PAIRS_PANEL_NO_HCORR_POSITIVE.png")
+# pairs.panels(high_positive_cor, gaps = 0, lm = TRUE, method="spearman", cex.cor =1, cex.main = 2, main = "Correlation and distribution visualisations of the most positively correlated variables")
+# dev.off()
+
+
+
+most_corr_negative <- c('AV_PR_M','D_FEN', 'D_BOG', 'P_WAT', 'D_QUA', 'D_HAR', 'D_ORD', 'S_FER', 'D_LCB', 'S_SIL', 'D_COA', 'D_SAN','AREA')
+head(most_corr_negative)
+high_negative_cor <- all[,(names(all) %in% most_corr_negative)]
+head(high_negative_cor)
+
+# png(height=1500, width=1500, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/PS_PAIRS_PANEL_NO_HCORR_NEGATIVE.png")
+# pairs.panels(high_negative_cor, gaps = 0, lm = TRUE, method="spearman", cex.cor =1, cex.main = 2, main = "Correlation and distribution visualisations of the most negatively correlated variables")
+# dev.off()
+################################
+
+##### SECTION 4. TRANSFORMATIONS
+
+################################
+
+##### Skewness and normalizing of the numeric independent variables
+
+##### This stage is the centering and scaling of the 'true numeric'IVs not therefore including the labelled DV! Below, the dataframe is split into one with all (true) numeric variables, and another dataframe holding the (ordinal) factors. In this example, all of the variables are numeric.
+
+numericVarNames <- numericVarNames[!(numericVarNames %in% c('AV_PR_M', 'AV_PR_T' ))]
+#numericVarNames was created before having done anything
+
+###### Pre-processing of indepedent variables before modelling
+
+#####Seperating the IV's from the DV for the purpose of transformation and normalisation
+
+DFnumeric <- all[, names(all) %in% numericVarNames]
+summary(DFnumeric)
+dim(DFnumeric)
+
+#####  In order to fix the skewness, I am taking the log10 for all numeric predictors with an absolute skew greater than 0.8 (actually: log10+1, to avoid division by zero issues). As a rule of thumb, skewness should be between -1 and 1.
+skew(DFnumeric)
+
+for(i in 1:ncol(DFnumeric)){if (abs(skew(DFnumeric[,i]))>0.8){DFnumeric[,i] <- log10(DFnumeric[,i] +1)}}
+
+skew(DFnumeric)
+
+# [1] -0.77179936 -0.03224119 -1.18474985 -2.02310098  0.05659279 -1.30231911
+# [7] -0.66011265  0.60113369  1.42519037  0.78841918 -1.65267111 -1.95992396
+# [13]  0.14260993  0.65572357  0.58561396 -1.09391342 -1.37614216 -0.81766093
+# [19]  0.17697575 -1.90432256 -0.11668356  0.40664134  0.68388854 -1.89821319
+# [25] -1.23597803 -1.97956415 -1.64661041  0.64991937 -1.12506759  7.32343056
+# [31] 13.43777518  6.35623669 13.07520365  0.46028591  0.47536881 -0.25128684
+# [37] -4.09107310
+
+# #some are still too high
+# head(DFnumeric[30:33]) # The usual supects = the percentages
+# DFnumeric[30:33] <- skew(exp(DFnumeric[30:33]))
+# skew(DFnumeric[30:33])
+# skew(log10(DFnumeric[30:33]+1))
+
+# [1] -0.19804796  0.20858000 -2.89457070  0.74106481  1.22554881
+# [6] -0.95979768 -0.64960104 -3.07043596  3.27322223  0.55140991
+# [11]  0.28702815  0.61154747 -0.74081178  0.32427421 -0.86265492
+# [16] -2.26393441  0.68302126  0.39979726 -1.17797187 -0.52387210
+# [21]  0.22799100  0.64749785 -1.83878038 -2.69748203 -1.78508897
+# [26] -2.23054937 -1.31776219 20.77248506  3.95283668  1.02260835
+# [31] 16.42779968  8.89636728  5.48318325 -0.58843084  1.48702515
+# [36] -0.04218856 -4.50967071
+
+# Better, but not perfect. ideally should be between -1 and 1
+
+
+residential.soils <- (residential_sales[44:48])
+ff <- DFnumeric
+str(ff)
+
+
+
+meltData <- melt(lm_train)
+meltData2 <- melt(residential.distances.pr)
+meltDatatransformed <- melt(DFnumeric)
+str(meltDatatransformed)
+
+p <- ggplot(meltDatatransformed, aes(factor(variable), value)) 
+png(height=800, width=800, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/RESIDENTIAL_2_LM_TRAIN_BOXPLOTS_before_scaling.png")
+p + geom_boxplot() + facet_wrap(~variable, scale="free") +ylab("Ranges of values")
+dev.off()
+
+
+
+
+
+
+
+
+
+
+##### Normalizing the variables
+
+PreNum <- preProcess(DFnumeric, method=c("center", "scale"))
+print(PreNum)
+DFnorm <- predict(PreNum, DFnumeric)
+dim(DFnorm)
+# 2693   37
+skew(DFnorm)
+head(DFnorm)
+
+png(height=800, width=1000, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/PS_BOXPLOT_VARS_SCALED_log.png")
+boxplot(DFnorm, main = "Box plots of all the variables (normalised and scaled)",
+        notch = FALSE, col=brewer.pal(n = 3, name = "RdBu"), par(las = 2), ylab = "Scaled value (0-100)")
+dev.off()
+#hist(DFnorm)
+
+# #method 2 - centre and scale. Makes no differnce, except for visualisation purposes
+# Scaled.Num <- data.frame(lapply(DFnumeric, function(x) scale(x, center = TRUE, scale = max(x, na.rm = TRUE)/100)))  ###need to do without y value????
+# head(Scaled.Num)
+# summary(Scaled.Num)
+# skew(Scaled.Num)
+# 
+# boxplot(Scaled.Num, main = "Box plots of all the variables (normalised and scaled)",
+#         notch = FALSE, col=brewer.pal(n = 3, name = "RdBu"), par(las = 2), ylab = "Scaled value (0-100)")
+# png(height=800, width=1000, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/PS_BOXPLOT_VARS_SCALED_log.png")
+# boxplot(Scaled.Num, main = "Box plots of all the variables (normalised and scaled)",
+#         notch = FALSE, col=brewer.pal(n = 3, name = "RdBu"), par(las = 2), ylab = "Scaled value (0-100)")
+# dev.off()
+# 
+# hist(Scaled.Num)
+
+##### If categorical variables added or modified, process them here and then combine them back in below. Add DFdummies into cbind if use factor variables
+
+##### Combining the different variable types
+
+head(DFnorm)
+combined <- cbind(DFnorm) #combining all (now numeric) predictors into one dataframe and the point where other data types are added back in
+head(combined)
+
+##### Normalising the skewed distribution of the dependent variable
+
+skew(all$AV_PR_M)
+# 2.576363
+
+qqnorm(all$AV_PR_M)
+qqline(all$AV_PR_M)
+
+# The skew of 2.57 indicates a right skew that is too high, and the QQ-plot shows this; that the average sold prices are not normally distributed.
+
+price_log <-(log10(all$AV_PR_M)) #make copy for visualisation purposes. GGplot needs a data.frame
+summary(price_log)
+glimpse(price_log)
+
+##### Print comparison qqplots and histograms
+
+png(height=800, width=1000, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/PS_TRANSFORMED_DV.png")
+par(mfrow=c(2,2))
+qqnorm(all$AV_PR_M, main ="QQPlot Untransformed Average Price (Euros/sqm)")
+qqline(all$AV_PR_M)
+hist(all$AV_PR_M, main ="Distribution Untransformed Average Price (Euros/sqm)", xlab = "Average sold price (Euros/sqm)", ylab ="Number of land plots", col = "steelblue")
+qqnorm(price_log, main = "QQPlot Log transformed Average Price (Euros/sqm)")
+qqline(price_log)
+hist(price_log, main ="Distribution Log transformed Average Price (Euros/sqm)", xlab = "Average sold price (Euros/sqm)", ylab ="Number of land plots", col = "steelblue")
+dev.off()
+
+#####Now continue with transformed DV for model
+summary(all$AV_PR_M)
+
+
+all$AV_PR_M <- log10(all$AV_PR_M) # "+1" is not necessary as there are no 0's
+skew(all$AV_PR_M)
+
+## -0.20 # The skew is much better
+hist(all$AV_PR_M)
+summary(all$AV_PR_M)
+
+##### Composing train and test sets
+#The model will be built using the train_data sample of the data
+#The model will be validated using the test_data sample of the data
+
+train_data <- combined[!is.na(all$AV_PR_M),]
+test_data <- combined[is.na(all$AV_PR_M),]
+head(train_data) # (SHOULD BE) all (processed) independent variables residential SALES (READY FOR CROSS VALIDATION)
+summary(train_data)
+head(test_data) # (SHOULD BE) all (processed) independent variables residential NO SALES (READY FOR PRICE PREDICTION)
+summary(train_data)
+dim(train_data) #913  37
+
+##### Check whether the transformations have changed the crude correlations between the variable. RESULT = NO CHANGE
+
+# AV_PR_M <- all$AV_PR_M
+# summary(AV_PR_M)
+# 
+# all_normalised <- cbind(combined, AV_PR_M)
+# summary(all_normalised)
+# dim(all_normalised) #10254    38
+
+
+##### Correlation matrix of the now TRANSFORMED AND CENTRE-SCALED dataset to check for changes in correlations
+# 
+##### Let's create a correlation matrix spreadsheet with method 'spearman' with p and r values of the variables' correlations
+# # 
+# # flat_cor_mat <- function(cor_r, cor_p){
+# #   cor_r <- rownames_to_column(as.data.frame(cor_r), var = "row")
+# #   cor_r <- gather(cor_r, column, cor, -1)
+# #   cor_p <- rownames_to_column(as.data.frame(cor_p), var = "row")
+# #   cor_p <- gather(cor_p, column, p, -1)
+# #   cor_p_matrix <- left_join(cor_r, cor_p, by = c("row", "column"))
+# #   cor_p_matrix
+# # }
+# # cor_3 <- rcorr(as.matrix(all_normalised), type=c("spearman"),2)
+# # 
+# # my_cor_matrix <- flat_cor_mat(cor_3$r, cor_3$P)
+# # head(my_cor_matrix)
+# # write.csv(my_cor_matrix, file ="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/PS_TRANS_NORMAL_MATRIX_p&r_spearman.csv")
+# 
+##### Let's try Pearson, now that the data has been normalised
+# 
+# # flat_cor_mat <- function(cor_r, cor_p){
+# #   cor_r <- rownames_to_column(as.data.frame(cor_r), var = "row")
+# #   cor_r <- gather(cor_r, column, cor, -1)
+# #   cor_p <- rownames_to_column(as.data.frame(cor_p), var = "row")
+# #   cor_p <- gather(cor_p, column, p, -1)
+# #   cor_p_matrix <- left_join(cor_r, cor_p, by = c("row", "column"))
+# #   cor_p_matrix
+# # }
+# # cor_3 <- rcorr(as.matrix(all_normalised), type=c("pearson"),2)
+# # 
+# # my_cor_matrix <- flat_cor_mat(cor_3$r, cor_3$P)
+# # head(my_cor_matrix)
+# # write.csv(my_cor_matrix, file ="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/PS_TRANS_NORMAL_MATRIX_p&r_pearson.csv")
+#dev.off()
+# corrplot.mixed(all_normalised, tl.col="black", tl.pos = "lt", tl.cex =1, lower.col = "black", number.cex = 1)
+
+
+#####SECTION 5: LINEAR REGRESSION
+
+head(train_data)
+summary(train_data)
+
+##### Stepwise Linear Regression Model
+
+# Multiple regression model utilises a simple formula:
+# AV_PR_M = INT + B1 x IV1 + B2 x IV2 + B3 x IVn
+
+# Using a stepwise selection of variables by backwards elimination
+# Considering all candidate variables and eliminate one at the time
+
+#Because of the small training set compared to testing set, cross validation will be used.
+
+##### While developing the model, iteratively analyse variables for
+#     - Normality of distribution
+#     - Extreme values 
+#     - Multiple collinearity
+#     - Homoscedasticity (even distribution of residuals)
+#     - p-value of coefficients and R2/F-statistic of the model (p-values removed one-at-a-time in order of highest value until all are significant (<0.05))
+
+##### Add the price data back into the training set
+##### remove all NA's
+AV_PR_M <- all$AV_PR_M
+summary(AV_PR_M)
+AV_PR_M <- AV_PR_M[!is.na(AV_PR_M)]
+summary(AV_PR_M)
+
+lm_train <- cbind(train_data, AV_PR_M)# A dataset with AV_PR_M included for the split linear model
+summary(lm_train)
+boxplot(lm_train, names = c(AREA,D_ARA,D_BOG,D_COA,D_DRA,D_ELE,D_ENV,D_FEN,D_FOR,D_GRA,D_GVE,D_HAR,D_LDF,D_LCB,D_ORD,D_PAT,D_PRO,D_QUA,D_QKM,D_RIV,D_RDS,D_SAN,D_SCH,D_SHO, D_SPO, D_SPR,D_WAT,D_WLL,D_WDV,P_ARA,P_PRO,P_WAT, P_WET,P_WOO,S_ROC,S_SIL,S_FER,AV_PR_M)) 
+
+residential.soils <- (residential_sales[44:48])
+
+meltData <- melt(lm_train)
+meltData2 <- melt(residential.distances.pr)
+meltData3 <- melt(residential.soils)
+
+p <- ggplot(meltData, aes(factor(variable), value)) 
+png(height=800, width=800, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/RESIDENTIAL_LM_TRAIN_BOXPLOTS.png")
+p + geom_boxplot() + facet_wrap(~variable, scale="free") +ylab("Ranges of values")
+dev.off()
+
+
+#SPLIT train_data
+
+# Split data into training and validation samples
+# We will use (train.size) 80% for training and (valid.size) 20% for validation.
+
+#The best formula will be used to predict the prices for the unsold cadastres: (test_data).
+
+set.seed(2017)
+train.size <- 0.7 
+train.index <- sample.int(length(lm_train$AV_PR_M), round(length(lm_train$AV_PR_M) * train.size))
+train.sample <- lm_train[train.index,]
+valid.sample <- lm_train[-train.index,]
+head(train.sample)
+
+##### Fit the model (1)
+fit <- lm(AV_PR_M ~ ., data=train.sample)
+summary(fit) # 0.6138 
+vif(fit)
+
+dev.off
+par(mfrow=c(2,2))
+plot(fit)
+dev.off
+# Check for non-linearity properly (from "car"), if good go further
+# This can only be done after the model was created
+
+
+dev.off
+# Eliminate extreme values
+cutoff <- 4/((nrow(train.sample)-length(fit$coefficients)-2)) # Cook's D plot, cutoff as 4/(n-k-1)
+plot(fit, which=4, cook.levels=cutoff)# identify D values > cutoff
+plot(fit, which=5, cook.levels=cutoff)
+par(mfrow=c(1,2))
+png(height=1000, width=1000, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/ps_fit_lm_outliers_for_removal.png")
+plot(fit, which=5, cook.levels=cutoff)
+dev.off()
+
+
+train.sample <- train.sample[-which(rownames(train.sample) %in% c("732","11170", "10890")),]    # remove "732","11170", "10890" as they are considerably further from the rest of the observations
+
+
+fit <- lm(AV_PR_M ~ ., data=train.sample)
+summary(fit) # 0.6138 
+vif(fit)
+
+
+
+
+
+
+
+dev.off
+# Eliminate extreme values
+cutoff <- 4/((nrow(train.sample)-length(fit$coefficients)-2)) # Cook's D plot, cutoff as 4/(n-k-1)
+plot(fit, which=4, cook.levels=cutoff)# identify D values > cutoff
+plot(fit, which=5, cook.levels=cutoff)
+par(mfrow=c(1,2))
+png(height=1000, width=1000, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/ps_fit_lm_outliers_for_removal.png")
+plot(fit, which=5, cook.levels=cutoff)
+dev.off()
+train.sample <- train.sample[-which(rownames(train.sample) %in% c("11483","10633", "894")),]    # remove "732","11170", "10890" as they are considerably further from the rest of the observations
+
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ ., data=train.sample)
+summary(fit) # 0.6138 
+vif(fit)
+
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN, data=train.sample)
+summary(fit) # 0.6138 
+vif(fit)
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET, data=train.sample)
+summary(fit) # 0.6138 
+vif(fit)
+
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET -D_BOG, data=train.sample)
+summary(fit) # 0.6138 
+vif(fit)
+
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET -D_BOG -D_LDF, data=train.sample)
+summary(fit) # 0.6138 
+vif(fit)
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET -D_BOG -D_LDF -D_PRO , data=train.sample)
+summary(fit) # 0.6138 
+vif(fit)
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET -D_BOG -D_LDF -D_PRO  -S_SIL, data=train.sample)
+summary(fit) # 0.6138 
+vif(fit)
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET -D_BOG -D_LDF -D_PRO  -S_SIL -P_ARA, data=train.sample)
+summary(fit) # 0.6138 
+vif(fit)
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET -D_BOG -D_LDF -D_PRO  -S_SIL -P_ARA -D_WAT, data=train.sample)
+summary(fit) # 0.6138 
+vif(fit)
+
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET -D_BOG -D_LDF -D_PRO  -S_SIL -P_ARA -D_WAT -D_RIV , data=train.sample)
+
+summary(fit) # 0.6138 
+vif(fit)
+
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET -D_BOG -D_LDF -D_PRO  -S_SIL -P_ARA -D_WAT -D_RIV -D_SCH, data=train.sample)
+
+summary(fit) # 0.6138 
+vif(fit)
+
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET -D_BOG -D_LDF -D_PRO  -S_SIL -P_ARA -D_WAT -D_RIV -D_SCH -P_PRO, data=train.sample)
+
+summary(fit) # 0.6138 
+vif(fit)
+
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET -D_BOG -D_LDF -D_PRO  -S_SIL -P_ARA -D_WAT -D_RIV -D_SCH -P_PRO - P_WAT, data=train.sample)
+
+summary(fit) # 0.6138 
+vif(fit)
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET -D_BOG -D_LDF -D_PRO  -S_SIL -P_ARA -D_WAT -D_RIV -D_SCH -P_PRO - P_WAT -D_WDV, data=train.sample)
+
+summary(fit) # 0.6138 
+vif(fit)
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET -D_BOG -D_LDF -D_PRO  -S_SIL -P_ARA -D_WAT -D_RIV -D_SCH -P_PRO - P_WAT -D_WDV -D_LCB, data=train.sample)
+
+summary(fit) # 0.6138 
+vif(fit)
+
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET -D_BOG -D_LDF -D_PRO  -S_SIL -P_ARA -D_WAT -D_RIV -D_SCH -P_PRO - P_WAT -D_WDV -D_LCB -D_PAT, data=train.sample)
+
+summary(fit) # 0.6138 
+vif(fit)
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET -D_BOG -D_LDF -D_PRO  -S_SIL -P_ARA -D_WAT -D_RIV -D_SCH -P_PRO - P_WAT -D_WDV -D_LCB -D_PAT -D_FOR, data=train.sample)
+
+summary(fit) # 0.6138 
+vif(fit)
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET -D_BOG -D_LDF -D_PRO  -S_SIL -P_ARA -D_WAT -D_RIV -D_SCH -P_PRO - P_WAT -D_WDV -D_LCB -D_PAT -D_FOR -D_ORD, data=train.sample)
+
+summary(fit) # 0.6138 
+vif(fit)
+
+summary(fit) # 0.6138 
+vif(fit)
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET -D_BOG -D_LDF -D_PRO  -S_SIL -P_ARA -D_WAT -D_RIV -D_SCH -P_PRO - P_WAT -D_WDV -D_LCB -D_PAT -D_FOR -D_ORD -P_WET, data=train.sample)
+
+summary(fit) # 0.6138 
+vif(fit)
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET -D_BOG -D_LDF -D_PRO  -S_SIL -P_ARA -D_WAT -D_RIV -D_SCH -P_PRO - P_WAT -D_WDV -D_LCB -D_PAT -D_FOR -D_ORD -P_WET -D_ENV, data=train.sample)
+
+summary(fit) # 0.6138 
+vif(fit)
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET -D_BOG -D_LDF -D_PRO  -S_SIL -P_ARA -D_WAT -D_RIV -D_SCH -P_PRO - P_WAT -D_WDV -D_LCB -D_PAT -D_FOR -D_ORD -P_WET -D_ENV -P_BUI, data=train.sample)
+
+summary(fit) # 0.6138 
+vif(fit)
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET -D_BOG -D_LDF -D_PRO  -S_SIL -P_ARA -D_WAT -D_RIV -D_SCH -P_PRO - P_WAT -D_WDV -D_LCB -D_PAT -D_FOR -D_ORD -P_WET -D_ENV -P_BUI -AREA, data=train.sample)
+
+summary(fit) # 0.6138 
+vif(fit)
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET -D_BOG -D_LDF -D_PRO  -S_SIL -P_ARA -D_WAT -D_RIV -D_SCH -P_PRO - P_WAT -D_WDV -D_LCB -D_PAT -D_FOR -D_ORD -P_WET -D_ENV -P_BUI -AREA -P_PRI, data=train.sample)
+
+summary(fit) # 0.7788
+vif(fit)
+
+
+
+
+
+dev.off
+par(mfrow=c(2,2))
+plot(fit)
+dev.off
+# Check for non-linearity properly (from "car"), if good go further
+# This can only be done after the model was created
+
+
+dev.off
+# Eliminate extreme values
+cutoff <- 4/((nrow(train.sample)-length(fit$coefficients)-2)) # Cook's D plot, cutoff as 4/(n-k-1)
+plot(fit, which=4, cook.levels=cutoff)# identify D values > cutoff
+plot(fit, which=5, cook.levels=cutoff)
+par(mfrow=c(1,2))
+png(height=1000, width=1000, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/ps_fit_lm_outliers_for_removal.png")
+plot(fit, which=5, cook.levels=cutoff)
+dev.off()
+
+train.sample <- train.sample[-which(rownames(train.sample) %in% c("9986","11482", "11888")),]    # remove "732","12242", "894" as they are considerably further from the rest of the observations
+
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET -D_BOG -D_LDF -D_PRO  -S_SIL -P_ARA -D_WAT -D_RIV -D_SCH -P_PRO - P_WAT -D_WDV -D_LCB -D_PAT -D_FOR -D_ORD -P_WET -D_ENV -P_BUI -AREA -P_PRI, data=train.sample)
+
+summary(fit) # 0.8289 
+vif(fit)
+
+
+dev.off
+par(mfrow=c(2,2))
+plot(fit)
+dev.off
+# Check for non-linearity properly (from "car"), if good go further
+# This can only be done after the model was created
+
+
+dev.off
+# Eliminate extreme values
+cutoff <- 4/((nrow(train.sample)-length(fit$coefficients)-2)) # Cook's D plot, cutoff as 4/(n-k-1)
+plot(fit, which=4, cook.levels=cutoff)# identify D values > cutoff
+plot(fit, which=5, cook.levels=cutoff)
+par(mfrow=c(1,2))
+png(height=1000, width=1000, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/ps_fit_lm_outliers_for_removal.png")
+plot(fit, which=5, cook.levels=cutoff)
+dev.off()
+
+train.sample <- train.sample[-which(rownames(train.sample) %in% c("11732","9445", "12052")),]    # remove "732","12242", "894" as they are considerably further from the rest of the observations
+
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET -D_BOG -D_LDF -D_PRO  -S_SIL -P_ARA -D_WAT -D_RIV -D_SCH -P_PRO - P_WAT -D_WDV -D_LCB -D_PAT -D_FOR -D_ORD -P_WET -D_ENV -P_BUI -AREA -P_PRI, data=train.sample)
+
+summary(fit) #  0.8558 
+vif(fit)
+
+
+dev.off
+par(mfrow=c(2,2))
+plot(fit)
+dev.off
+# Check for non-linearity properly (from "car"), if good go further
+# This can only be done after the model was created
+
+
+dev.off
+# Eliminate extreme values
+cutoff <- 4/((nrow(train.sample)-length(fit$coefficients)-2)) # Cook's D plot, cutoff as 4/(n-k-1)
+plot(fit, which=4, cook.levels=cutoff)# identify D values > cutoff
+plot(fit, which=5, cook.levels=cutoff)
+par(mfrow=c(1,2))
+png(height=1000, width=1000, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/ps_fit_lm_outliers_for_removal.png")
+plot(fit, which=5, cook.levels=cutoff)
+dev.off()
+
+train.sample <- train.sample[-which(rownames(train.sample) %in% c("12242")),]    # remove "732","12242", "894" as they are considerably further from the rest of the observations
+
+
+##### Fit the model (2)
+fit <- lm(AV_PR_M ~ . -D_FEN -D_WET -D_BOG -D_LDF -D_PRO  -S_SIL -P_ARA -D_WAT -D_RIV -D_SCH -P_PRO - P_WAT -D_WDV -D_LCB -D_PAT -D_FOR -D_ORD -P_WET -D_ENV -P_BUI -AREA -P_PRI, data=train.sample)
+
+
+
+summary(fit) # 0.8608 
+vif(fit)
+
+dev.off
+par(mfrow=c(2,2))
+plot(fit)
+dev.off
+# Check for non-linearity properly (from "car"), if good go further
+# This can only be done after the model was created
+
+
+dev.off
+# Eliminate extreme values
+cutoff <- 4/((nrow(train.sample)-length(fit$coefficients)-2)) # Cook's D plot, cutoff as 4/(n-k-1)
+plot(fit, which=4, cook.levels=cutoff)# identify D values > cutoff
+plot(fit, which=5, cook.levels=cutoff)
+par(mfrow=c(1,2))
+png(height=1000, width=1000, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/ps_fit_lm_outliers_for_removal.png")
+plot(fit, which=5, cook.levels=cutoff)
+dev.off()
+##################################################################################################
+##################################################################################################
+
+par(mfrow=c(2,2))
+plot(fit)
+
+AIC(fit) #17.59425
+BIC(fit) #61.7725
+
+
+par(mfrow=c(2,2))
+png(height=1000, width=1000, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/RESIDENTIAL2.MODEL.PLOTS.png")
+par(mfrow=c(2,2))
+plot(fit)
+dev.off()
+
+distPred <- predict(fit, valid.sample)
+
+#A simple correlation between the actuals and predicted values can be used as a form of accuracy measure. A higher correlation accuracy implies that the actuals and predicted values have similar directional movement, i.e. when the actuals values increase the predicteds also increase and vice-versa.
+
+actuals_preds <- data.frame(cbind(actuals=valid.sample$AV_PR_M, predicteds=distPred))  # make actuals_predicteds dataframe.
+
+correlation_accuracy <- cor(actuals_preds)  # 82.7%
+correlation_accuracy
+head(actuals_preds)
+
+
+
+
+
+
+
+
+
+
+
+##Plot the residual plot with all predictors.
+pred1 <- predict(fit, newdata = valid.sample)
+rmse <- sqrt(sum((exp(pred1) - valid.sample$AV_PR_M)^2)/length(valid.sample$AV_PR_M))
+c(RMSE = rmse, R2=summary(fit)$r.squared)
+
+par(mfrow=c(1,1))
+plot(valid.sample$AV_PR_M, exp(pred1))
+
+
+
+RSS <- c(crossprod(fit$residuals))
+RSS
+#RESIDUAL SUM OF SQUARES = 4.065147
+MSE <- RSS/length(fit$residuals)
+MSE
+#MEAN SQUARE ERROR = 0.047
+RMSE <- sqrt(MSE)
+RMSE 
+#ROOT MEAN SQUARED ERROR =0.21
+sig2 <- RSS / fit$df.residual
+sig2
+#Pearson estimated residual variance=0.059
+summary (fit)
+
+
+anova(fit)
+
+
+
+
+
+##### FINISHED. ALL WITHIN COOK'S LEVERAGE
+summary(fit)
+
+RSS <- c(crossprod(fit$residuals))
+RSS
+#RESIDUAL SUM OF SQUARES = 4.065147
+MSE <- RSS/length(fit$residuals)
+MSE
+#MEAN SQUARE ERROR = 0.047
+RMSE <- sqrt(MSE)
+RMSE 
+#ROOT MEAN SQUARED ERROR =0.21
+sig2 <- RSS / fit$df.residual
+sig2
+#Pearson estimated residual variance=0.059
+summary (fit)
+
+AIC(fit)
+BIC(fit)
+
+aov(fit)
+
+
+
+#THIS (MODEL 24) IS THE OPTIMUM STEPWISE MODEL. ALL VARIABLES ARE SIGNIFICANT IN TERMS OF P-VALUES AND ALL THE VIF SCORES ARE NO HIGHER THAN 1.2. 
+
+##### More variables have been removed than kept, so let's write it the other way round
+
+keep_mod_var <- c("D_ARA", "D_COA", "D_ELE","D_ENV" ,"D_GRA",  "D_GVE", "D_HAR", "D_RDS", "D_SAN", "D_SHO", "D_SPO", "D_SPR", "D_WAT", "D_WDV", "S_ROC","S_FER", "AV_PR_M")
+newdata <- train.sample[c(names(train.sample) %in% keep_mod_var)]
+summary(newdata)
+# summary(train.sample)
+# dim(newdata)
+
+dev.off()
+forwardlm <- lm(AV_PR_M ~., data = newdata)
+summary(forwardlm) #the same. good!
+
+
+sink("D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/ps_lm_optiumum_summary_forward.txt")
+print(summary(forwardlm))
+sink() 
+
+##### Repeat model but with variables written out for printing purposes
+
+final_lm <- lm(AV_PR_M~ D_ARA+ D_COA+ D_ELE+D_ENV +D_GRA+  D_GVE+ D_HAR+ D_RDS+ D_SAN+ D_SHO+ D_SPO+ D_SPR+ D_WAT+ D_WDV+ S_ROC+S_FER, data=train.sample)
+summary(final_lm)
+
+# res.aov<- aov(AV_PR_M~ D_ARA+ D_COA+ D_ELE +D_GRA+ D_HAR+ D_RDS+ D_SHO+ D_SPO+ D_SPR+ D_WAT+ D_WDV+S_FER, data=train.sample)
+# summary(res.aov)
+# 
+# final_lm2<-lm(AV_PR_M~ D_ARA+ D_COA+ D_ELE +D_GRA+ D_HAR+ D_RDS+ D_SHO+ D_SPO+ D_SPR+ D_WAT+ D_WDV+S_FER, data=train.sample)
+# summary(final_lm2)
+# 
+# plot(res.aov)
+# 
+# par(mfrow=c(2,2))
+# cutoff <- 4/((nrow(train.sample)-length(fit$coefficients)-2)) # Cook's D plot, cutoff as 4/(n-k-1)
+# plot(final_lm2, which=4, cook.levels=cutoff)                        # identify D values > cutoff
+# plot(final_lm2, which=5, cook.levels=cutoff) # No observation with extreme leverage
+# png(height=1000, width=1000, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/ps_final_lm2_outliers_for_removal4.png")
+# plot(final_lm2, which=5, cook.levels=cutoff)
+
+
+dev.off()
+summary(res.aov)
+
+sink("D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/RESIDENTIAL_ANOVA_EDITED_FINAL_LM.txt")
+print(anova(final_lm2))
+sink() 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+RSS <- c(crossprod(final_lm$residuals))
+RSS
+#RESIDUAL SUM OF SQUARES = 4.065147
+MSE <- RSS/length(final_lm$residuals)
+MSE
+#MEAN SQUARE ERROR = 0.047
+RMSE <- sqrt(MSE)
+RMSE 
+#ROOT MEAN SQUARED ERROR =0.21
+sig2 <- RSS / final_lm$df.residual
+sig2
+#Pearson estimated residual variance=0.059
+summary (final_lm)
+AIC(final_lm)
+BIC(final_lm)
+anova(final_lm)
+anova(final_lm2)
+
+abline(fit)
+plot(fit)
+plot(final_lm)
+plot(final_lm2)
+
+summary(fit)
+
+anova(final_lm2)
+RSS <- c(crossprod(final_lm2$residuals))
+RSS
+#RESIDUAL SUM OF SQUARES = 5.292869
+MSE <- RSS/length(final_lm2$residuals)
+MSE
+#MEAN SQUARE ERROR = 0.06154499
+RMSE <- sqrt(MSE)
+RMSE 
+#ROOT MEAN SQUARED ERROR =0.2480826
+sig2 <- RSS / final_lm2$df.residual
+sig2
+#Pearson estimated residual variance=0.07250506
+summary (final_lm2)
+AIC(final_lm2)
+BIC(final_lm2)
+
+
+
+
+
+
+
+
+
+
+sink("D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/ps_lm_optiumum_variables_displayed.txt")
+print(summary(final_lm))
+sink()
+
+
+##### Lets visualise the linearity again
+#PRINT
+
+png(height=800, width=800, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/ps_final_lm_RESIDUAL_PLOTS_STEPWISE_LM.png")
+par(mfrow=c(2,2))
+plot(final_lm)
+dev.off()
+
+png(height=1000, width=1000, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/ps_final_lm_CRPLOTS_STEPWISE_LM.png")
+crPlots(final_lm)
+dev.off()
+
+#PRINT
+crPlots(final_lm)
+#####################################################
+##################################################
+##### Now evaluate the final linear model
+#     Find all predicted values for both a training set and a validation set
+train.sample$Pred.Price <- predict(fit, 
+                                   newdata = train.sample)
+valid.sample$Pred.Price <- predict(fit, 
+                                   newdata = valid.sample)
+
+# The theoretical model performance is defined here as R-Squared
+summary(final_lm) #  R2 =  0.7719  # F= 18.98
+
+anova(final_lm)
+train.sample
+########################################
+########################################
+# check again but log10-untransform the data
+
+# Check how good is the model on the training set - correlation^2, RME and MAE
+train.corr <- round(cor(train.sample$Pred.Price, train.sample$AV_PR_M), 2)
+train.RMSE <- (sqrt(mean((10 ^ train.sample$Pred.Price - 10 ^ train.sample$AV_PR_M)^2)))
+train.MAE <- (mean(abs(10 ^ train.sample$Pred.Price - 10 ^ train.sample$AV_PR_M)))
+c(train.corr^2, train.RMSE, train.MAE)
+#  0.8100000 1.3737626 0.7094241   
+
+cor.test(train.sample$Pred.Price, train.sample$AV_PR_M)
+
+# Check how good is the model on the training set - correlation^2, RME and MAE
+train.corr <- round(cor(10^train.sample$Pred.Price, 10^train.sample$AV_PR_M), 2)
+train.RMSE <- (sqrt(mean((train.sample$Pred.Price - train.sample$AV_PR_M)^2)))
+train.MAE <- (mean(abs(train.sample$Pred.Price - train.sample$AV_PR_M)))
+c(train.corr^2, train.RMSE, train.MAE)
+#  0.8100000 1.3737626 0.7094241
+
+
+#### The validation sample is quite small. On the unseen dataset, the model accuracy is lower (but not as much as for residential, which has a smaller sample). This model would be better performed with cross validation, rather than splitting. 
+
+# Check how good is the model on the validation set - correlation^2, RME and MAE
+valid.corr <- round(cor(valid.sample$Pred.Price, valid.sample$AV_PR_M), 2)
+valid.RMSE <- (sqrt(mean((10 ^ valid.sample$Pred.Price - 10 ^ valid.sample$AV_PR_M)^2)))
+valid.MAE <- (mean(abs(10 ^ valid.sample$Pred.Price - 10 ^ valid.sample$AV_PR_M)))
+c(valid.corr^2, valid.RMSE, valid.MAE)
+#[1] 0.435600 2.199657 1.223332
+
+plot(10^train.sample$Pred.Price, 10^train.sample$AV_PR_M)
+plot(train.sample$Pred.Price, train.sample$AV_PR_M)
+plot(10 ^ valid.sample$Pred.Price, 10 ^ valid.sample$AV_PR_M)
+plot( valid.sample$Pred.Price, valid.sample$AV_PR_M)
+
+
+
+varlm <- lm(AV_PR_M~ D_ARA+ D_COA+ D_ELE+D_ENV +D_GRA+  D_GVE+ D_HAR+ D_RDS+ D_SAN+ D_SHO+ D_SPO+ D_SPR+ D_WAT+ D_WDV+ S_ROC+S_FER, data=valid.sample)
+summary(varlm)
+##################################################
+# lmpreds <- round(predict(lm_model,newdata = testnum), 2)
+# ## Warning in predict.lm(modelFit, newdata): prediction from a rank-deficient
+# ## fit may be misleading
+head(train_data)
+final_lm_predict <- predict(fit, test_data)
+predictions_final_lm <- (10^final_lm_predict) #need to reverse the log to the real values
+head(predictions_final_lm)
+
+final_lm_price_predictions <- data.frame(Id = test_labels, AV_PR_M = (predictions_final_lm))
+write.csv(final_lm_price_predictions, file ="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/ps_predictions_final_lm.csv", row.names = F)
+
+png(height=800, width=1000, pointsize=15, file="D:/THESIS/GRAND_TABLE_PROFIT_RES_ALLK_JOINS_FULL_PRICE/R/SCRIPTS/RESIDENTIAL_SALES/RESIDENTIAL_SALES_SHORTENED/OUTPUT/predicted_price.png")
+par(mfrow=c(1,2))
+plot(predictions_final_lm, main ="QQPlot Untransformed Average Price (Euros/sqm)")
+line(all$AV_PR_M)
+hist(predictions_final_lm, main ="Distribution Untransformed Average Price (Euros/sqm)", xlab = "Average sold price (Euros/sqm)", ylab ="Number of land plots", col = "steelblue")
+
+dev.off()
